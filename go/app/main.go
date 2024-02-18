@@ -29,7 +29,7 @@ func addItem(c echo.Context) error {
 	// Get form data
 	name := c.FormValue("name")
 	category := c.FormValue("category") // i made this change
-	c.Logger().Infof("Receive item: %s", name)
+	c.Logger().Infof("Receive item: %s", name, category)
 
 	message := fmt.Sprintf("item received: %s", name)
 	res := Response{Message: message}
