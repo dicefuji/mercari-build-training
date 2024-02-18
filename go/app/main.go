@@ -29,9 +29,9 @@ func addItem(c echo.Context) error {
 	// Get form data
 	name := c.FormValue("name")
 	category := c.FormValue("category") // i made this change
-	c.Logger().Infof("Receive item: %s", name, category)
+	c.Logger().Infof("Receive item: %s, Category: %s", name, category)
 
-	message := fmt.Sprintf("item received: %s", name,category)
+	message := fmt.Sprintf("item received: %s, category: %s", name,category)
 	res := Response{Message: message}
 
 	return c.JSON(http.StatusOK, res)
