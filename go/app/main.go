@@ -80,6 +80,26 @@ func addItem(c echo.Context) error {
 	return c.JSON(http.StatusOK, res)
 }
 
+func getItems(c echo.Context) error {
+	file, err := os.Open("items.json") // Open file
+	if err != nil {
+		c.Logger().Errorf("Error opening file: %s", err)
+		res := Response{Message: "Error opening file"}
+		return c.JSON(http.StatusInternalServerError, res)
+	}
+	defer file.Close() 
+
+	itemsData := ItemsData{} // Fill with existing data
+	err = json.NewDecoder(file).Decode(&itemsData)
+	if err != nil && err != io.EOF {
+		c.Logger().Errorf("Error decoding file: %s", err)
+		res := Response{Message: "Error decoding file"}
+		return c.JSON(http.StatusInternalServerError, res)
+	}
+
+	return c.JSON(http.StatusOK, itemsData)
+}
+
 func getImg(c echo.Context) error {
 	// Create image path
 	imgPath := path.Join(ImgDir, c.Param("imageFilename"))
@@ -115,6 +135,7 @@ func main() {
 	// Routes
 	e.GET("/", root)
 	e.POST("/items", addItem)
+	e.GET("/items", getItems)
 	e.GET("/image/:imageFilename", getImg)
 
 
