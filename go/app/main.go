@@ -8,6 +8,7 @@ import (
 	"path"
 	"strings"
 	
+	"crypto/sha256"
 	"encoding/json"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -30,13 +31,14 @@ func root(c echo.Context) error {
 type Item struct {
 	Name string`json:"name"`
 	Category string `json:"category"`
+	Image string `json:"image"`
 }
 
 type ItemsData struct {
 	Items [] Item `json:"items"`
 }
 
-func appendItemToFile(name string, category string) error {
+func appendItemToFile(name string, category string, image string) error {
 	file, err := os.OpenFile("items.json", os.O_RDWR|os.O_CREATE, 0755) // Assume file exists
 	if err != nil {
 		return err
@@ -48,8 +50,15 @@ func appendItemToFile(name string, category string) error {
 	if err != nil && err != io.EOF {
 		return err
 	}
+	
+	// this is where we hash the image name
+	h := sha256.New()
+	h.Write([]byte(strings.Split(image, ".")[0]))
+	hashed := h.Sum(nil)
+	image = fmt.Sprintf("%x", hashed) + ".jpg"
 
-	newItem := Item{Name: name, Category: category} // Adding  new item
+	newItem := Item{Name: name, Category: category, Image: image} // Add new item
+
 	itemsData.Items = append(itemsData.Items, newItem)
 
 	file.Truncate(0) // Clear file
@@ -65,15 +74,15 @@ func addItem(c echo.Context) error {
 	// Get form data
 	name := c.FormValue("name")
 	category := c.FormValue("category") // i made this change
-	c.Logger().Infof("Receive item: %s, Category: %s", name, category)
+	image := c.FormValue("image")
 
-	err := appendItemToFile(name, category) // Append item to file
+	err := appendItemToFile(name, category,image) // Append item to file
 	if err != nil {
 		c.Logger().Errorf("Error appending item to file: %s", err)
 		res := Response{Message: "Error appending item to file"}
 		return c.JSON(http.StatusInternalServerError, res)
 	}
-	c.Logger().Infof("Receive item: %s, Category: %s", name, category)
+	c.Logger().Infof("Receive item: %s, Category: %s, Image: %s", name, category, image)
 	message := fmt.Sprintf("item received: %s, category: %s", name,category)
 	res := Response{Message: message}
 
