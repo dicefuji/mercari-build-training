@@ -10,6 +10,8 @@ import (
 	
 	"crypto/sha256"
 	"encoding/json"
+
+	"strconv"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/log"
@@ -109,6 +111,27 @@ func getItems(c echo.Context) error {
 	return c.JSON(http.StatusOK, itemsData)
 }
 
+func getItemById(c echo.Context) error {
+	id, _ := strconv.Atoi(c.Param("id")) // Get item id
+	file, err := os.Open("items.json") // Open file
+	if err != nil {
+		c.Logger().Errorf("Error opening file: %s", err)
+		res := Response{Message: "Error opening file"}
+		return c.JSON(http.StatusInternalServerError, res)
+	}
+	defer file.Close()
+
+	itemsData := ItemsData{} // Fill with existing data
+	err = json.NewDecoder(file).Decode(&itemsData)
+	if err != nil && err != io.EOF {
+		c.Logger().Errorf("Error decoding file: %s", err)
+		res := Response{Message: "Error decoding file"}
+		return c.JSON(http.StatusInternalServerError, res)
+	}
+
+	return c.JSON(http.StatusOK, itemsData.Items[id-1])
+}
+
 func getImg(c echo.Context) error {
 	// Create image path
 	imgPath := path.Join(ImgDir, c.Param("imageFilename"))
@@ -145,6 +168,7 @@ func main() {
 	e.GET("/", root)
 	e.POST("/items", addItem)
 	e.GET("/items", getItems)
+	e.GET("/items/:id", getItemById)
 	e.GET("/image/:imageFilename", getImg)
 
 
