@@ -53,7 +53,6 @@ func hashName(name string) string {
 	return fmt.Sprintf("%x", hash.Sum(nil))
 }
 	
-}
 
 func addItem(c echo.Context) error {
     // Get form data
