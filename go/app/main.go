@@ -12,13 +12,16 @@ import (
 	"encoding/json"
 
 	"strconv"
+	"database/sql"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/log"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 const (
 	ImgDir = "images"
+	dbPath = "../db/mercari.sqlite3"
 )
 
 type Response struct {
@@ -36,7 +39,7 @@ type Item struct {
 	Image string `json:"image"`
 }
 
-type ItemsData struct {
+type Items struct {
 	Items [] Item `json:"items"`
 }
 
@@ -47,8 +50,8 @@ func appendItemToFile(name string, category string, image string) error {
 	}
 	defer file.Close()
 
-	itemsData := ItemsData{} // Fill with existing data
-	err = json.NewDecoder(file).Decode(&itemsData)
+	items := Items{} // Fill with existing data
+	err = json.NewDecoder(file).Decode(&items)
 	if err != nil && err != io.EOF {
 		return err
 	}
@@ -61,11 +64,11 @@ func appendItemToFile(name string, category string, image string) error {
 
 	newItem := Item{Name: name, Category: category, Image: image} // Add new item
 
-	itemsData.Items = append(itemsData.Items, newItem)
+	items.Items = append(items.Items, newItem)
 
 	file.Truncate(0) // Clear file
 	file.Seek(0, 0) // Go to start of file
-	err = json.NewEncoder(file).Encode(itemsData) // Writing in  new data
+	err = json.NewEncoder(file).Encode(items) // Writing in  new data
 	if err != nil {
 		return err
 	}
@@ -100,7 +103,7 @@ func getItems(c echo.Context) error {
 	}
 	defer file.Close() 
 
-	itemsData := ItemsData{} // Fill with existing data
+	items := Items{} // Fill with existing data
 	err = json.NewDecoder(file).Decode(&itemsData)
 	if err != nil && err != io.EOF {
 		c.Logger().Errorf("Error decoding file: %s", err)
@@ -108,7 +111,7 @@ func getItems(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, res)
 	}
 
-	return c.JSON(http.StatusOK, itemsData)
+	return c.JSON(http.StatusOK, items)
 }
 
 func getItemById(c echo.Context) error {
@@ -121,15 +124,15 @@ func getItemById(c echo.Context) error {
 	}
 	defer file.Close()
 
-	itemsData := ItemsData{} // Fill with existing data
-	err = json.NewDecoder(file).Decode(&itemsData)
+	items := Items{} // Fill with existing data
+	err = json.NewDecoder(file).Decode(&items)
 	if err != nil && err != io.EOF {
 		c.Logger().Errorf("Error decoding file: %s", err)
 		res := Response{Message: "Error decoding file"}
 		return c.JSON(http.StatusInternalServerError, res)
 	}
 
-	return c.JSON(http.StatusOK, itemsData.Items[id-1])
+	return c.JSON(http.StatusOK, items.Items[id-1])
 }
 
 func getImg(c echo.Context) error {
