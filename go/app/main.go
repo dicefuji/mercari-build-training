@@ -25,7 +25,7 @@ const (
 )
 
 type Response struct {
-	Message string `json:"message"`
+	Message string
 }
 
 func root(c echo.Context) error {
@@ -34,105 +34,212 @@ func root(c echo.Context) error {
 }
 
 type Item struct {
-	Name string`json:"name"`
-	Category string `json:"category"`
-	Image string `json:"image"`
+	Id int
+	Name string 
+	Category string 
+	ImageName string 
 }
 
 type Items struct {
-	Items [] Item `json:"items"`
+	Items []*Item
 }
 
-func appendItemToFile(name string, category string, image string) error {
-	file, err := os.OpenFile("items.json", os.O_RDWR|os.O_CREATE, 0755) // Assume file exists
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	items := Items{} // Fill with existing data
-	err = json.NewDecoder(file).Decode(&items)
-	if err != nil && err != io.EOF {
-		return err
-	}
-	
+func hashName(name string) string {
 	// this is where we hash the image name
-	h := sha256.New()
-	h.Write([]byte(strings.Split(image, ".")[0]))
-	hashed := h.Sum(nil)
-	image = fmt.Sprintf("%x", hashed) + ".jpg"
+	
 
-	newItem := Item{Name: name, Category: category, Image: image} // Add new item
-
-	items.Items = append(items.Items, newItem)
-
-	file.Truncate(0) // Clear file
-	file.Seek(0, 0) // Go to start of file
-	err = json.NewEncoder(file).Encode(items) // Writing in  new data
-	if err != nil {
-		return err
-	}
-
-	return nil
+	hash := sha256.New()
+	hash.Write([]byte(name))
+	return fmt.Sprintf("%x", hash.Sum(nil))
 }
+	
+}
+
 func addItem(c echo.Context) error {
-	// Get form data
-	name := c.FormValue("name")
-	category := c.FormValue("category") // i made this change
-	image := c.FormValue("image")
+    // Get form data
+    name := c.FormValue("name")
+    category := c.FormValue("category")
+	src, _ := c.FormFile("image_name")
 
-	err := appendItemToFile(name, category,image) // Append item to file
+	// Open file for reading
+	srcFile, err := src.Open()
 	if err != nil {
-		c.Logger().Errorf("Error appending item to file: %s", err)
-		res := Response{Message: "Error appending item to file"}
-		return c.JSON(http.StatusInternalServerError, res)
+		return echo.NewHTTPError(
+			http.StatusInternalServerError,
+			err.Error(),
+		)
 	}
-	c.Logger().Infof("Receive item: %s, Category: %s, Image: %s", name, category, image)
-	message := fmt.Sprintf("item received: %s, category: %s", name,category)
-	res := Response{Message: message}
+	defer srcFile.Close()
 
-	return c.JSON(http.StatusOK, res)
+	image_name := hashName(strings.Split(src.Filename, ".")[0]) + ".jpg"
+
+	// Create image file
+	dstFile, err := os.Create(path.Join(ImgDir, image_name))
+	if err != nil {
+		return echo.NewHTTPError(
+			http.StatusInternalServerError,
+			err.Error(),
+		)
+	}
+	defer dstFile.Close()
+
+	// Copy image to file
+	io.Copy(dstFile, srcFile)
+    c.Logger().Infof("Received item: %s, %s, %s", name, category, image_name)
+    message := fmt.Sprintf("Item received: %s, %s, %s", name, category, image_name)
+
+    db, err := sql.Open("sqlite3", dbPath)
+    if err != nil {
+        return echo.NewHTTPError(
+            http.StatusInternalServerError,
+            err.Error(),
+        )
+    }
+    defer db.Close()
+
+    // Insert category
+    stmnt1, err := db.Prepare(
+        "INSERT OR IGNORE INTO category (name) VALUES (?)",
+    )
+    if err != nil {
+        return echo.NewHTTPError(
+            http.StatusInternalServerError,
+            err.Error(),
+        )
+    }
+    defer stmnt1.Close()
+
+    _, err = stmnt1.Exec(category)
+    if err != nil {
+        return echo.NewHTTPError(
+            http.StatusInternalServerError,
+            err.Error(),
+        )
+    }
+
+    // Get category ID
+    var categoryID int
+    err = db.QueryRow("SELECT id FROM category WHERE name = ?", category).Scan(&categoryID)
+    if err != nil {
+        return echo.NewHTTPError(
+            http.StatusInternalServerError,
+            err.Error(),
+        )
+    }
+
+    // Insert item
+    stmnt2, err := db.Prepare(
+        "INSERT INTO items (name, category_id, image_name) VALUES (?, ?, ?)",
+    )
+    if err != nil {
+        return echo.NewHTTPError(
+            http.StatusInternalServerError,
+            err.Error(),
+        )
+    }
+    defer stmnt2.Close()
+
+    _, err = stmnt2.Exec(name, categoryID, image_name)
+    if err != nil {
+        return echo.NewHTTPError(
+            http.StatusInternalServerError,
+            err.Error(),
+        )
+    }
+
+    res := Response{Message: message}
+    return c.JSON(http.StatusOK, res)
 }
 
 func getItems(c echo.Context) error {
-	file, err := os.Open("items.json") // Open file
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
-		c.Logger().Errorf("Error opening file: %s", err)
-		res := Response{Message: "Error opening file"}
-		return c.JSON(http.StatusInternalServerError, res)
+		return echo.NewHTTPError(
+			http.StatusInternalServerError,
+			err.Error(),
+		)
 	}
-	defer file.Close() 
+	defer db.Close() 
 
-	items := Items{} // Fill with existing data
-	err = json.NewDecoder(file).Decode(&itemsData)
-	if err != nil && err != io.EOF {
-		c.Logger().Errorf("Error decoding file: %s", err)
-		res := Response{Message: "Error decoding file"}
-		return c.JSON(http.StatusInternalServerError, res)
+	// Get all items from db
+	rows, err := db.Query(
+		"SELECT i.name, c.name, i.image_name FROM items AS i JOIN category AS c ON i.category_id = c.id",
+	)
+	if err != nil {
+		return echo.NewHTTPError(
+			http.StatusInternalServerError,
+			err.Error(),
+		)
+	}
+	defer rows.Close()
+
+	// Map items to returned var
+	items := Items{Items: []*Item{}}
+	for rows.Next() {
+		var item Item
+		err := rows.Scan(
+			&item.Name,
+			&item.Category,
+			&item.ImageName,
+		); if err != nil {
+			return echo.NewHTTPError(
+				http.StatusInternalServerError,
+				err.Error(),
+			)
+		}
+		items.Items = append(items.Items, &item)
 	}
 
 	return c.JSON(http.StatusOK, items)
 }
 
-func getItemById(c echo.Context) error {
-	id, _ := strconv.Atoi(c.Param("id")) // Get item id
-	file, err := os.Open("items.json") // Open file
+func searchItems(c echo.Context) error {
+	// Get search keyword query param
+	keyword := c.QueryParam("keyword")
+	c.Logger().Infof("Searching for: %s", keyword)
+
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
-		c.Logger().Errorf("Error opening file: %s", err)
-		res := Response{Message: "Error opening file"}
-		return c.JSON(http.StatusInternalServerError, res)
+		return echo.NewHTTPError(
+			http.StatusInternalServerError,
+			err.Error(),
+		)
 	}
-	defer file.Close()
+	defer db.Close()
 
-	items := Items{} // Fill with existing data
-	err = json.NewDecoder(file).Decode(&items)
-	if err != nil && err != io.EOF {
-		c.Logger().Errorf("Error decoding file: %s", err)
-		res := Response{Message: "Error decoding file"}
-		return c.JSON(http.StatusInternalServerError, res)
+	// Search for items
+	rows, err := db.Query(
+		"SELECT i.name, c.name, image_name FROM items AS i JOIN category AS c ON i.category_id = c.id WHERE i.name LIKE ? OR c.name LIKE ?",
+		"%"+keyword+"%",
+		"%"+keyword+"%",
+	)
+	if err != nil {
+		return echo.NewHTTPError(
+			http.StatusInternalServerError,
+			err.Error(),
+		)
 	}
+	defer rows.Close()
 
-	return c.JSON(http.StatusOK, items.Items[id-1])
+	// Map items to returned var
+	items := Items{Items: []*Item{}}
+	for rows.Next() {
+		var item Item
+		err := rows.Scan(
+			&item.Name,
+			&item.Category,
+			&item.ImageName,
+		)
+		if err != nil {
+			return echo.NewHTTPError(
+				http.StatusInternalServerError,
+				err.Error(),
+			)
+		}
+		items.Items = append(items.Items, &item)
+	}
+	
+	return c.JSON(http.StatusOK, items)
 }
 
 func getImg(c echo.Context) error {
@@ -171,7 +278,7 @@ func main() {
 	e.GET("/", root)
 	e.POST("/items", addItem)
 	e.GET("/items", getItems)
-	e.GET("/items/:id", getItemById)
+	e.GET("/search", searchItems)
 	e.GET("/image/:imageFilename", getImg)
 
 
